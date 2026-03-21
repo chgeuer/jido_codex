@@ -149,7 +149,7 @@ defmodule Jido.Codex.AdapterTest do
     assert thread_opts[:transport] == nil
     assert_receive {:run_streamed, "hello", %{}}
 
-    assert Enum.map(events, & &1.type) == [:session_started, :session_completed]
+    assert Enum.map(events, & &1.type) == [:session_started, :usage, :session_completed]
     assert events |> Enum.at(0) |> Map.get(:session_id) == "session-1"
   end
 

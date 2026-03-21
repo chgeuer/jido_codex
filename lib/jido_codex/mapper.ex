@@ -7,6 +7,7 @@ defmodule Jido.Codex.Mapper do
   alias Codex.Items
   alias Codex.StreamEvent
   alias Jido.Harness.Event
+  alias Jido.Harness.Event.Usage, as: UsageEvent
 
   @doc "Maps a Codex stream event into one or more normalized events."
   @spec map_event(term(), keyword()) :: {:ok, [Event.t()]} | {:error, term()}
@@ -92,6 +93,79 @@ defmodule Jido.Codex.Mapper do
     {:ok, [build_event(:thinking_delta, event.thread_id, %{"text" => text}, event)]}
   end
 
+  # Exec-transport command execution: emit both a tool_call and tool_result
+  # from the completed item since it contains the full command, output, and exit code.
+  def map_event(%Events.ItemCompleted{item: %Items.CommandExecution{} = item} = event, _opts) do
+    call_id = item.id || "exec-#{System.unique_integer([:positive])}"
+
+    tool_call =
+      build_event(
+        :tool_call,
+        event.thread_id,
+        %{
+          "name" => "exec_command",
+          "input" => %{"cmd" => item.command, "cwd" => item.cwd},
+          "call_id" => call_id
+        },
+        event
+      )
+
+    tool_result =
+      build_event(
+        :tool_result,
+        event.thread_id,
+        %{
+          "name" => "exec_command",
+          "output" => item.aggregated_output || "",
+          "call_id" => call_id,
+          "is_error" => item.status == :failed || (item.exit_code != nil and item.exit_code != 0)
+        },
+        event
+      )
+
+    {:ok, [tool_call, tool_result]}
+  end
+
+  # McpToolCall items from exec transport
+  def map_event(%Events.ItemCompleted{item: %Items.McpToolCall{} = item} = event, _opts) do
+    call_id = item.id || "mcp-#{System.unique_integer([:positive])}"
+
+    tool_call =
+      build_event(
+        :tool_call,
+        event.thread_id,
+        %{
+          "name" => item.name || "mcp_tool",
+          "input" => item.arguments || %{},
+          "call_id" => call_id
+        },
+        event
+      )
+
+    tool_result =
+      build_event(
+        :tool_result,
+        event.thread_id,
+        %{
+          "name" => item.name || "mcp_tool",
+          "output" => item.output || "",
+          "call_id" => call_id,
+          "is_error" => item.status == :failed
+        },
+        event
+      )
+
+    {:ok, [tool_call, tool_result]}
+  end
+
+  # In-progress command execution (item.started) — skip since ItemCompleted
+  # will emit both tool_call and tool_result with complete data
+  def map_event(%Events.ItemStarted{item: %Items.CommandExecution{}}, _opts), do: {:ok, []}
+
+  # Skip other ItemStarted/ItemUpdated (noise for rendering)
+  def map_event(%Events.ItemStarted{}, _opts), do: {:ok, []}
+  def map_event(%Events.ItemUpdated{}, _opts), do: {:ok, []}
+
   def map_event(%Events.ReasoningDelta{} = event, _opts) do
     {:ok, [build_event(:thinking_delta, event.thread_id, %{"text" => event.delta}, event)]}
   end
@@ -125,7 +199,7 @@ defmodule Jido.Codex.Mapper do
 
   def map_event(%Events.ThreadTokenUsageUpdated{} = event, _opts) do
     payload = %{"usage" => event.usage, "delta" => event.delta}
-    {:ok, [build_event(:usage, event.thread_id, payload, event)]}
+    {:ok, [build_event(:codex_token_update, event.thread_id, payload, event)]}
   end
 
   def map_event(%Events.AccountRateLimitsUpdated{} = event, _opts) do
@@ -184,7 +258,9 @@ defmodule Jido.Codex.Mapper do
       "usage" => event.usage
     }
 
-    {:ok, [build_event(:session_completed, event.thread_id, payload, event)]}
+    usage_event = maybe_usage_event(event.usage, event.thread_id, event)
+
+    {:ok, List.wrap(usage_event) ++ [build_event(:session_completed, event.thread_id, payload, event)]}
   end
 
   def map_event(%Events.TurnFailed{} = event, _opts) do
@@ -246,6 +322,27 @@ defmodule Jido.Codex.Mapper do
   end
 
   defp detect_session_id(_), do: nil
+
+  defp maybe_usage_event(nil, _session_id, _raw), do: nil
+
+  defp maybe_usage_event(usage, session_id, raw) when is_map(usage) and is_binary(session_id) do
+    input = usage["input_tokens"] || usage[:input_tokens] || 0
+    output = usage["output_tokens"] || usage[:output_tokens] || 0
+    cached = usage["cached_input_tokens"] || usage[:cached_input_tokens] || 0
+
+    if input > 0 or output > 0 do
+      UsageEvent.build(:codex, session_id,
+        input_tokens: input,
+        output_tokens: output,
+        cached_input_tokens: cached,
+        raw: raw
+      )
+    else
+      nil
+    end
+  end
+
+  defp maybe_usage_event(_, _, _), do: nil
 
   defp stringify_keys(value) when is_map(value) do
     value

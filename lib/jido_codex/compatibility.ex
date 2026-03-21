@@ -97,7 +97,20 @@ defmodule Jido.Codex.Compatibility do
   end
 
   defp read_help(program) do
-    case command_module().run(program, ["--help"], timeout: @command_timeout) do
+    # Check both top-level and exec subcommand help, since flags like --json
+    # are defined on the exec subcommand, not the top-level command.
+    with {:ok, top_help} <- run_help(program, ["--help"]),
+         {:ok, exec_help} <- run_help(program, ["exec", "--help"]) do
+      {:ok, top_help <> "\n" <> exec_help}
+    else
+      # If exec --help fails, fall back to top-level only
+      {:error, _} ->
+        run_help(program, ["--help"])
+    end
+  end
+
+  defp run_help(program, args) do
+    case command_module().run(program, args, timeout: @command_timeout) do
       {:ok, output} ->
         {:ok, output}
 

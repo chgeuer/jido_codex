@@ -78,7 +78,8 @@ defmodule Jido.Codex.MixProject do
     [
       {:zoi, "~> 0.17"},
       {:splode, ">= 0.2.9 and < 0.4.0"},
-      {:jido_harness, github: "agentjido/jido_harness", branch: "main", override: true},
+      {:jido_harness, path: "../jido_harness", override: true},
+      {:jido_shell, github: "agentjido/jido_shell", branch: "main", override: true},
       {:codex_sdk, "~> 0.10"},
       {:jason, "~> 1.4"}
     ]
