@@ -199,7 +199,8 @@ defmodule Jido.Codex.Mapper do
 
   def map_event(%Events.ThreadTokenUsageUpdated{} = event, _opts) do
     payload = %{"usage" => event.usage, "delta" => event.delta}
-    {:ok, [build_event(:codex_token_update, event.thread_id, payload, event)]}
+    usage_event = maybe_live_usage_event(event.usage, event.thread_id, event)
+    {:ok, List.wrap(usage_event) ++ [build_event(:codex_token_update, event.thread_id, payload, event)]}
   end
 
   def map_event(%Events.AccountRateLimitsUpdated{} = event, _opts) do
@@ -343,6 +344,28 @@ defmodule Jido.Codex.Mapper do
   end
 
   defp maybe_usage_event(_, _, _), do: nil
+
+  # Emit a canonical :usage event from live ThreadTokenUsageUpdated events
+  defp maybe_live_usage_event(nil, _session_id, _raw), do: nil
+
+  defp maybe_live_usage_event(usage, session_id, raw) when is_map(usage) and is_binary(session_id) do
+    input = usage["input_tokens"] || usage[:input_tokens] || 0
+    output = usage["output_tokens"] || usage[:output_tokens] || 0
+    cached = usage["cached_input_tokens"] || usage[:cached_input_tokens] || 0
+
+    if input > 0 or output > 0 do
+      UsageEvent.build(:codex, session_id,
+        input_tokens: input,
+        output_tokens: output,
+        cached_input_tokens: cached,
+        raw: raw
+      )
+    else
+      nil
+    end
+  end
+
+  defp maybe_live_usage_event(_, _, _), do: nil
 
   defp stringify_keys(value) when is_map(value) do
     value
