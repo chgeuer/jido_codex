@@ -56,8 +56,12 @@ defmodule Jido.Codex.MapperTest do
     assert {:ok, [file_change]} = Mapper.map_event(Fixtures.item_completed_file_change(), [])
     assert file_change.type == :file_change
 
-    assert {:ok, [usage]} = Mapper.map_event(Fixtures.usage_updated(), [])
-    assert usage.type == :codex_token_update
+    assert {:ok, events} = Mapper.map_event(Fixtures.usage_updated(), [])
+    assert Enum.any?(events, &(&1.type == :codex_token_update))
+    assert Enum.any?(events, &(&1.type == :usage))
+
+    usage = Enum.find(events, &(&1.type == :usage))
+    assert usage.payload["input_tokens"] == 10
   end
 
   test "maps extended codex events" do
