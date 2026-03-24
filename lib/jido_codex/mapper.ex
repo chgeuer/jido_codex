@@ -13,14 +13,11 @@ defmodule Jido.Codex.Mapper do
   @spec map_event(term(), keyword()) :: {:ok, [Event.t()]} | {:error, term()}
   def map_event(%StreamEvent.RunItem{event: event}, opts), do: map_event(event, opts)
 
-  def map_event(%StreamEvent.RawResponses{events: events}, opts) when is_list(events) do
-    events
-    |> Enum.reduce_while({:ok, []}, fn event, {:ok, acc} ->
-      case map_event(event, opts) do
-        {:ok, mapped} -> {:cont, {:ok, acc ++ mapped}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
+  # RawResponses is a batch summary pushed after collect_stream_events.
+  # Each inner event was already emitted individually as a RunItem during
+  # streaming, so we skip the batch to avoid duplicate events.
+  def map_event(%StreamEvent.RawResponses{}, _opts) do
+    {:ok, []}
   end
 
   def map_event(%StreamEvent.AgentUpdated{} = event, _opts) do
