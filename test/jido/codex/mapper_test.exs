@@ -14,7 +14,8 @@ defmodule Jido.Codex.MapperTest do
     assert configured.type == :session_started
 
     assert {:ok, [continuation]} = Mapper.map_event(Fixtures.turn_continuation(), [])
-    assert continuation.type == :codex_turn_continuation
+    assert continuation.type == :provider_event
+    assert continuation.payload["event_type"] == "codex_turn_continuation"
     assert continuation.payload["continuation_token"] == "ctok"
   end
 
@@ -44,11 +45,11 @@ defmodule Jido.Codex.MapperTest do
 
   test "maps tool events" do
     assert {:ok, [call]} = Mapper.map_event(Fixtures.tool_call_requested(), [])
-    assert call.type == :tool_call
+    assert call.type == :tool_use_start
     assert call.payload["name"] == "Read"
 
     assert {:ok, [result]} = Mapper.map_event(Fixtures.tool_call_completed(), [])
-    assert result.type == :tool_result
+    assert result.type == :tool_use_end
     assert result.payload["is_error"] == false
   end
 
@@ -57,7 +58,7 @@ defmodule Jido.Codex.MapperTest do
     assert file_change.type == :file_change
 
     assert {:ok, events} = Mapper.map_event(Fixtures.usage_updated(), [])
-    assert Enum.any?(events, &(&1.type == :codex_token_update))
+    assert Enum.any?(events, &(&1.type == :provider_event))
     assert Enum.any?(events, &(&1.type == :usage))
 
     usage = Enum.find(events, &(&1.type == :usage))
@@ -66,27 +67,33 @@ defmodule Jido.Codex.MapperTest do
 
   test "maps extended codex events" do
     assert {:ok, [rate]} = Mapper.map_event(Fixtures.rate_limits_updated(), [])
-    assert rate.type == :codex_rate_limits_updated
+    assert rate.type == :provider_event
+    assert rate.payload["event_type"] == "codex_rate_limits_updated"
 
     assert {:ok, [diff]} = Mapper.map_event(Fixtures.turn_diff_updated(), [])
-    assert diff.type == :codex_turn_diff_updated
+    assert diff.type == :provider_event
+    assert diff.payload["event_type"] == "codex_turn_diff_updated"
 
     assert {:ok, [plan]} = Mapper.map_event(Fixtures.turn_plan_updated(), [])
-    assert plan.type == :codex_turn_plan_updated
+    assert plan.type == :provider_event
+    assert plan.payload["event_type"] == "codex_turn_plan_updated"
 
     assert {:ok, [mcp]} = Mapper.map_event(Fixtures.mcp_tool_progress(), [])
-    assert mcp.type == :codex_mcp_tool_progress
+    assert mcp.type == :provider_event
+    assert mcp.payload["event_type"] == "codex_mcp_tool_progress"
 
     assert {:ok, [rui]} = Mapper.map_event(Fixtures.request_user_input(), [])
-    assert rui.type == :codex_request_user_input
+    assert rui.type == :ask_user
   end
 
   test "maps warnings and terminal states" do
     assert {:ok, [warn]} = Mapper.map_event(Fixtures.config_warning(), [])
-    assert warn.type == :codex_warning
+    assert warn.type == :provider_event
+    assert warn.payload["event_type"] == "codex_warning"
 
     assert {:ok, [warn2]} = Mapper.map_event(Fixtures.warning(), [])
-    assert warn2.type == :codex_warning
+    assert warn2.type == :provider_event
+    assert warn2.payload["event_type"] == "codex_warning"
 
     assert {:ok, [usage, complete]} = Mapper.map_event(Fixtures.turn_completed(), [])
     assert usage.type == :usage
@@ -105,7 +112,7 @@ defmodule Jido.Codex.MapperTest do
   test "maps stream wrapper events" do
     run_item = Fixtures.run_item(Fixtures.turn_started())
     assert {:ok, [event]} = Mapper.map_event(run_item, [])
-    assert event.type == :codex_turn_started
+    assert event.type == :turn_start
 
     # RawResponses are intentionally skipped to avoid duplicate events
     # (each inner event is already emitted individually as RunItem)
@@ -118,7 +125,7 @@ defmodule Jido.Codex.MapperTest do
     assert {:ok, [agent_updated]} =
              Mapper.map_event(%Codex.StreamEvent.AgentUpdated{agent: nil, run_config: nil}, [])
 
-    assert agent_updated.type == :codex_event
+    assert agent_updated.type == :provider_event
 
     assert {:ok, [guardrail]} =
              Mapper.map_event(
@@ -131,7 +138,7 @@ defmodule Jido.Codex.MapperTest do
                []
              )
 
-    assert guardrail.type == :codex_event
+    assert guardrail.type == :provider_event
 
     assert {:ok, [tool_approval]} =
              Mapper.map_event(
@@ -144,18 +151,18 @@ defmodule Jido.Codex.MapperTest do
                []
              )
 
-    assert tool_approval.type == :codex_event
+    assert tool_approval.type == :provider_event
   end
 
-  test "falls back to codex_event for unknown events" do
+  test "falls back to provider_event for unknown events" do
     assert {:ok, [event]} = Mapper.map_event(Fixtures.unknown_event(), [])
-    assert event.type == :codex_event
+    assert event.type == :provider_event
     assert event.payload["event_module"] =~ "ContextCompacted"
   end
 
   test "falls back safely for unknown non-map events" do
     assert {:ok, [event]} = Mapper.map_event(:unknown_event, [])
-    assert event.type == :codex_event
+    assert event.type == :provider_event
     assert event.payload["event_type"] == "unknown"
     assert event.payload["event_module"] == "unknown"
     assert event.session_id == nil

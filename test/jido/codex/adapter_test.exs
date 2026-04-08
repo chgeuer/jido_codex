@@ -280,7 +280,7 @@ defmodule Jido.Codex.AdapterTest do
     assert {:ok, stream} = Adapter.run(request)
 
     events = Enum.to_list(stream)
-    assert Enum.map(events, & &1.type) == [:codex_warning]
+    assert Enum.map(events, & &1.type) == [:provider_event]
     assert SessionRegistry.list() == []
   end
 

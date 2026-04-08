@@ -21,7 +21,7 @@ defmodule Jido.Codex.Mapper do
   end
 
   def map_event(%StreamEvent.AgentUpdated{} = event, _opts) do
-    {:ok, [build_event(:codex_event, nil, %{"event_type" => "agent_updated"}, event)]}
+    {:ok, [build_event(:provider_event, nil, %{"event_type" => "agent_updated"}, event)]}
   end
 
   def map_event(%StreamEvent.GuardrailResult{} = event, _opts) do
@@ -33,7 +33,7 @@ defmodule Jido.Codex.Mapper do
       "message" => event.message
     }
 
-    {:ok, [build_event(:codex_event, nil, payload, event)]}
+    {:ok, [build_event(:provider_event, nil, payload, event)]}
   end
 
   def map_event(%StreamEvent.ToolApproval{} = event, _opts) do
@@ -45,7 +45,7 @@ defmodule Jido.Codex.Mapper do
       "reason" => event.reason
     }
 
-    {:ok, [build_event(:codex_event, nil, payload, event)]}
+    {:ok, [build_event(:provider_event, nil, payload, event)]}
   end
 
   def map_event(%Events.ThreadStarted{} = event, _opts) do
@@ -60,7 +60,7 @@ defmodule Jido.Codex.Mapper do
 
   def map_event(%Events.TurnStarted{} = event, _opts) do
     payload = %{"turn_id" => event.turn_id}
-    {:ok, [build_event(:codex_turn_started, event.thread_id, payload, event)]}
+    {:ok, [build_event(:turn_start, event.thread_id, payload, event)]}
   end
 
   def map_event(%Events.TurnContinuation{} = event, _opts) do
@@ -71,7 +71,7 @@ defmodule Jido.Codex.Mapper do
       "reason" => event.reason
     }
 
-    {:ok, [build_event(:codex_turn_continuation, event.thread_id, payload, event)]}
+    {:ok, [build_event(:provider_event, event.thread_id, Map.put(payload, "event_type", "codex_turn_continuation"), event)]}
   end
 
   def map_event(%Events.ItemAgentMessageDelta{} = event, _opts) do
@@ -97,7 +97,7 @@ defmodule Jido.Codex.Mapper do
 
     tool_call =
       build_event(
-        :tool_call,
+        :tool_use_start,
         event.thread_id,
         %{
           "name" => "exec_command",
@@ -109,7 +109,7 @@ defmodule Jido.Codex.Mapper do
 
     tool_result =
       build_event(
-        :tool_result,
+        :tool_use_end,
         event.thread_id,
         %{
           "name" => "exec_command",
@@ -129,7 +129,7 @@ defmodule Jido.Codex.Mapper do
 
     tool_call =
       build_event(
-        :tool_call,
+        :tool_use_start,
         event.thread_id,
         %{
           "name" => item.tool || "mcp_tool",
@@ -141,7 +141,7 @@ defmodule Jido.Codex.Mapper do
 
     tool_result =
       build_event(
-        :tool_result,
+        :tool_use_end,
         event.thread_id,
         %{
           "name" => item.tool || "mcp_tool",
@@ -175,7 +175,7 @@ defmodule Jido.Codex.Mapper do
       "requires_approval" => event.requires_approval
     }
 
-    {:ok, [build_event(:tool_call, event.thread_id, payload, event)]}
+    {:ok, [build_event(:tool_use_start, event.thread_id, payload, event)]}
   end
 
   def map_event(%Events.ToolCallCompleted{} = event, _opts) do
@@ -186,7 +186,7 @@ defmodule Jido.Codex.Mapper do
       "call_id" => event.call_id
     }
 
-    {:ok, [build_event(:tool_result, event.thread_id, payload, event)]}
+    {:ok, [build_event(:tool_use_end, event.thread_id, payload, event)]}
   end
 
   def map_event(%Events.ItemCompleted{item: %Items.FileChange{} = item} = event, _opts) do
@@ -197,30 +197,30 @@ defmodule Jido.Codex.Mapper do
   def map_event(%Events.ThreadTokenUsageUpdated{} = event, _opts) do
     payload = %{"usage" => event.usage, "delta" => event.delta}
     usage_event = maybe_live_usage_event(event.usage, event.thread_id, event)
-    {:ok, List.wrap(usage_event) ++ [build_event(:codex_token_update, event.thread_id, payload, event)]}
+    {:ok, List.wrap(usage_event) ++ [build_event(:provider_event, event.thread_id, Map.put(payload, "event_type", "codex_token_update"), event)]}
   end
 
   def map_event(%Events.AccountRateLimitsUpdated{} = event, _opts) do
     payload = %{"rate_limits" => event.rate_limits}
-    {:ok, [build_event(:codex_rate_limits_updated, event.thread_id, payload, event)]}
+    {:ok, [build_event(:provider_event, event.thread_id, Map.put(payload, "event_type", "codex_rate_limits_updated"), event)]}
   end
 
   def map_event(%Events.TurnDiffUpdated{} = event, _opts) do
-    {:ok, [build_event(:codex_turn_diff_updated, event.thread_id, %{"diff" => event.diff}, event)]}
+    {:ok, [build_event(:provider_event, event.thread_id, %{"diff" => event.diff, "event_type" => "codex_turn_diff_updated"}, event)]}
   end
 
   def map_event(%Events.TurnPlanUpdated{} = event, _opts) do
     payload = %{"explanation" => event.explanation, "plan" => event.plan}
-    {:ok, [build_event(:codex_turn_plan_updated, event.thread_id, payload, event)]}
+    {:ok, [build_event(:provider_event, event.thread_id, Map.put(payload, "event_type", "codex_turn_plan_updated"), event)]}
   end
 
   def map_event(%Events.McpToolCallProgress{} = event, _opts) do
     {:ok,
      [
        build_event(
-         :codex_mcp_tool_progress,
+         :provider_event,
          event.thread_id,
-         %{"message" => event.message, "item_id" => event.item_id},
+         %{"message" => event.message, "item_id" => event.item_id, "event_type" => "codex_mcp_tool_progress"},
          event
        )
      ]}
@@ -230,7 +230,7 @@ defmodule Jido.Codex.Mapper do
     {:ok,
      [
        build_event(
-         :codex_request_user_input,
+         :ask_user,
          nil,
          %{"id" => event.id, "turn_id" => event.turn_id, "questions" => event.questions},
          event
@@ -240,12 +240,12 @@ defmodule Jido.Codex.Mapper do
 
   def map_event(%Events.ConfigWarning{} = event, _opts) do
     payload = %{"summary" => event.summary, "details" => event.details}
-    {:ok, [build_event(:codex_warning, nil, payload, event)]}
+    {:ok, [build_event(:provider_event, nil, Map.put(payload, "event_type", "codex_warning"), event)]}
   end
 
   def map_event(%Events.Warning{} = event, _opts) do
     payload = %{"summary" => event.message, "details" => nil}
-    {:ok, [build_event(:codex_warning, nil, payload, event)]}
+    {:ok, [build_event(:provider_event, nil, Map.put(payload, "event_type", "codex_warning"), event)]}
   end
 
   def map_event(%Events.TurnCompleted{} = event, _opts) do
@@ -285,7 +285,7 @@ defmodule Jido.Codex.Mapper do
   def map_event(event, _opts) do
     payload = %{"event_module" => detect_event_module(event), "event_type" => detect_event_type(event)}
     session_id = detect_session_id(event)
-    {:ok, [build_event(:codex_event, session_id, payload, event)]}
+    {:ok, [build_event(:provider_event, session_id, payload, event)]}
   end
 
   defp build_event(type, session_id, payload, raw) do
