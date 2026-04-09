@@ -13,14 +13,11 @@ defmodule Jido.Codex.Mapper do
   @spec map_event(term(), keyword()) :: {:ok, [Event.t()]} | {:error, term()}
   def map_event(%StreamEvent.RunItem{event: event}, opts), do: map_event(event, opts)
 
-  def map_event(%StreamEvent.RawResponses{events: events}, opts) when is_list(events) do
-    events
-    |> Enum.reduce_while({:ok, []}, fn event, {:ok, acc} ->
-      case map_event(event, opts) do
-        {:ok, mapped} -> {:cont, {:ok, acc ++ mapped}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
+  # RawResponses is a batch summary pushed after collect_stream_events.
+  # Each inner event was already emitted individually as a RunItem during
+  # streaming, so we skip the batch to avoid duplicate events.
+  def map_event(%StreamEvent.RawResponses{}, _opts) do
+    {:ok, []}
   end
 
   def map_event(%StreamEvent.AgentUpdated{} = event, _opts) do
@@ -135,7 +132,7 @@ defmodule Jido.Codex.Mapper do
         :tool_call,
         event.thread_id,
         %{
-          "name" => item.name || "mcp_tool",
+          "name" => item.tool || "mcp_tool",
           "input" => item.arguments || %{},
           "call_id" => call_id
         },
@@ -147,8 +144,8 @@ defmodule Jido.Codex.Mapper do
         :tool_result,
         event.thread_id,
         %{
-          "name" => item.name || "mcp_tool",
-          "output" => item.output || "",
+          "name" => item.tool || "mcp_tool",
+          "output" => normalize_mcp_result(item.result),
           "call_id" => call_id,
           "is_error" => item.status == :failed
         },
@@ -367,6 +364,10 @@ defmodule Jido.Codex.Mapper do
 
   defp maybe_live_usage_event(_, _, _), do: nil
 
+  defp stringify_keys(%_{} = struct) do
+    struct |> Map.from_struct() |> stringify_keys()
+  end
+
   defp stringify_keys(value) when is_map(value) do
     value
     |> Enum.map(fn {k, v} -> {to_string(k), stringify_keys(v)} end)
@@ -375,4 +376,31 @@ defmodule Jido.Codex.Mapper do
 
   defp stringify_keys(value) when is_list(value), do: Enum.map(value, &stringify_keys/1)
   defp stringify_keys(value), do: value
+
+  # Normalize MCP tool results which may be:
+  # - nil → ""
+  # - a plain string → pass through
+  # - a map with "content" key (MCP format) → extract text blocks
+  # - any other map → JSON encode
+  defp normalize_mcp_result(nil), do: ""
+  defp normalize_mcp_result(result) when is_binary(result), do: result
+
+  defp normalize_mcp_result(%{"content" => content}) when is_list(content) do
+    content
+    |> Enum.flat_map(fn
+      %{"type" => "text", "text" => text} when is_binary(text) -> [text]
+      %{"text" => text} when is_binary(text) -> [text]
+      _ -> []
+    end)
+    |> Enum.join("\n")
+  end
+
+  defp normalize_mcp_result(result) when is_map(result) do
+    case Jason.encode(result) do
+      {:ok, json} -> json
+      _ -> inspect(result)
+    end
+  end
+
+  defp normalize_mcp_result(result), do: inspect(result)
 end

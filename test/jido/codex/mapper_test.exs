@@ -107,16 +107,13 @@ defmodule Jido.Codex.MapperTest do
     assert {:ok, [event]} = Mapper.map_event(run_item, [])
     assert event.type == :codex_turn_started
 
-    {:ok, [raw_1, raw_2, raw_3]} =
-      Mapper.map_event(
-        %Codex.StreamEvent.RawResponses{events: [Fixtures.turn_started(), Fixtures.turn_completed()]},
-        []
-      )
-
-    assert raw_1.type == :codex_turn_started
-    assert raw_2.type == :usage
-    assert raw_2.payload["input_tokens"] == 1
-    assert raw_3.type == :session_completed
+    # RawResponses are intentionally skipped to avoid duplicate events
+    # (each inner event is already emitted individually as RunItem)
+    assert {:ok, []} =
+             Mapper.map_event(
+               %Codex.StreamEvent.RawResponses{events: [Fixtures.turn_started(), Fixtures.turn_completed()]},
+               []
+             )
 
     assert {:ok, [agent_updated]} =
              Mapper.map_event(%Codex.StreamEvent.AgentUpdated{agent: nil, run_config: nil}, [])
